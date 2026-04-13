@@ -1,0 +1,19 @@
+# Environment / secrets
+env.ini
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local data cache (re-fetchable from API)
+data/cache/
+
+# OS
+.DS_Store
+Thumbs.db

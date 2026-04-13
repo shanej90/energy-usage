@@ -1,0 +1,58 @@
+name: Update energy dashboard
+
+# Runs once a day at 07:00 UTC (08:00 BST / 07:00 GMT).
+# Can also be triggered manually from the Actions tab.
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Needed so the job can push the updated HTML back to the repo
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Write env.ini from GitHub Actions secrets so the script can find credentials
+      # the same way it does locally.  The file is never committed (it's gitignored).
+      - name: Create env.ini from secrets
+        run: |
+          cat > env.ini << 'EOF'
+          [default]
+          OCTOPUS_API_KEY          = ${{ secrets.OCTOPUS_API_KEY }}
+          ELECTRICITY_MPAN         = ${{ secrets.ELECTRICITY_MPAN }}
+          ELECTRICITY_SERIAL       = ${{ secrets.ELECTRICITY_SERIAL }}
+          GAS_MPRN                 = ${{ secrets.GAS_MPRN }}
+          GAS_SERIAL               = ${{ secrets.GAS_SERIAL }}
+          ELECTRICITY_TARIFF_CODE  = ${{ secrets.ELECTRICITY_TARIFF_CODE }}
+          GAS_TARIFF_CODE          = ${{ secrets.GAS_TARIFF_CODE }}
+          EOF
+
+      - name: Build dashboard
+        run: python dashboard/build_dashboard.py
+
+      # Commit and push outputs/dashboard.html if it changed.
+      # [skip ci] in the commit message prevents an infinite trigger loop.
+      - name: Commit updated dashboard
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add outputs/dashboard.html
+          git diff --staged --quiet \
+            || git commit -m "chore: update dashboard $(date -u +'%Y-%m-%d') [skip ci]"
+          git push
