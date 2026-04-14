@@ -39,6 +39,9 @@ jobs:
           ELECTRICITY_SERIAL       = ${{ secrets.ELECTRICITY_SERIAL }}
           GAS_MPRN                 = ${{ secrets.GAS_MPRN }}
           GAS_SERIAL               = ${{ secrets.GAS_SERIAL }}
+          WEATHER_LAT              = 50.7236
+          WEATHER_LON              = -3.5275
+          WEATHER_LOCATION         = Exeter, UK
           EOF
 
       - name: Build dashboard
