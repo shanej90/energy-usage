@@ -60,7 +60,7 @@ ELECTRICITY_SERIAL   = your_electricity_meter_serial
 GAS_MPRN             = your_mprn
 GAS_SERIAL           = your_gas_meter_serial
 
-# Optional — location for weather/climate calculations
+# Required — location for weather/climate calculations
 WEATHER_LAT          = your_latitude
 WEATHER_LON          = your_longitude
 WEATHER_LOCATION     = your_location_name
