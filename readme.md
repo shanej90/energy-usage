@@ -12,6 +12,8 @@ TL;DR - View the [final output](https://shanej90.github.io/energy-usage/outputs/
 - Aggregation to half-hour / hour / day / week / month / year
 - Interactive Plotly charts with a period selector (Daily / Weekly / Monthly / Yearly)
 - Self-contained HTML dashboard export suitable for GitHub Pages
+- Weather integration: daily temperature and calibrated sunshine hours via Open-Meteo
+- OLS energy model with a monthly consumption forecast tool
 
 ## Project structure
 
@@ -24,6 +26,13 @@ utils/
   auth.py                  # Session builder (Windows SSL fix) + Kraken token helper
   cache.py                 # Parquet-based local cache
   directory_navigation.py  # Project-root finder
+
+weather/
+  fetch_weather.py         # Open-Meteo ERA5 fetch; Angstrom-Prescott sunshine hours;
+                           #   solar noon elevation; climate normals (WMO 1991–2020)
+
+models/
+  energy_model.py          # OLS regression — electricity & gas vs weather features
 
 dashboard/
   build_dashboard.py       # Headless build script — produces outputs/dashboard.html
@@ -39,9 +48,7 @@ outputs/                   # HTML dashboard export (commit this for GitHub Pages
 
 ### 1. Install dependencies
 
-```bash
-pip install requests pandas pyarrow plotly certifi
-```
+See `requirements.txt`.
 
 ### 2. Create `env.ini`
 
@@ -52,11 +59,14 @@ ELECTRICITY_MPAN     = your_mpan
 ELECTRICITY_SERIAL   = your_electricity_meter_serial
 GAS_MPRN             = your_mprn
 GAS_SERIAL           = your_gas_meter_serial
+
+# Required — location for weather/climate calculations
+WEATHER_LAT          = your_latitude
+WEATHER_LON          = your_longitude
+WEATHER_LOCATION     = your_location_name
 ```
 
 All values can be found on the [Octopus personal API access page](https://octopus.energy/dashboard/new/accounts/personal-details/api-access).
-
-Tariff codes are no longer required — the dashboard discovers your full tariff history automatically by querying your account via the Octopus API.
 
 ### 3. Build the dashboard
 
@@ -95,6 +105,9 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `ELECTRICITY_SERIAL` | Electricity meter serial |
 | `GAS_MPRN` | Your MPRN |
 | `GAS_SERIAL` | Gas meter serial |
+| `WEATHER_LAT` | Latitude of your location |
+| `WEATHER_LON` | Longitude of your location |
+| `WEATHER_LOCATION` | Display name for your location |
 
 These map directly to the `[default]` keys in `env.ini`.  The workflow writes a
 temporary `env.ini` from them at runtime; the file is never committed.
@@ -128,6 +141,7 @@ rather than waiting until 07:00 UTC.
 - **Gas units**: SMETS2 meters report in m³ and are converted to kWh using a ~11.1 kWh/m³ factor.  Set `GAS_IS_M3 = False` near the top of `dashboard/build_dashboard.py` if your meter already reports kWh.
 - **Agile tariffs**: The unit-rate fetch returns one rate per 30-minute slot; `add_costs()` uses `merge_asof` to correctly match each consumption interval to its price.
 - **SSL inspection**: The `build_session()` function merges the Windows certificate store into the certifi CA bundle, resolving TLS errors caused by corporate/antivirus SSL inspection.
+- **Sunshine hours**: ERA5's pre-computed sunshine duration systematically overestimates in cloudy maritime climates because the reanalysis model operates on a coarse (~25 km) grid that smooths out cloud variability.  Sunshine hours are instead estimated using the FAO-56 Angstrom-Prescott formula: `S = N × (Rs/Ra − 0.25) / 0.50`, where `N` is astronomical day length, `Rs` is daily shortwave radiation from ERA5, and `Ra` is extraterrestrial radiation — both computed from solar geometry.  This is location-agnostic: sunnier climates naturally produce higher values because their `Rs/Ra` ratio is genuinely higher.
 
 ## Env variables
 
@@ -138,6 +152,9 @@ rather than waiting until 07:00 UTC.
 | `ELECTRICITY_SERIAL` | Yes | Electricity meter serial number |
 | `GAS_MPRN` | Yes | Meter Point Reference Number |
 | `GAS_SERIAL` | Yes | Gas meter serial number |
+| `WEATHER_LAT` | Yes | Latitude for weather/climate calculations |
+| `WEATHER_LON` | Yes | Longitude for weather/climate calculations |
+| `WEATHER_LOCATION` | Yes | Display name for the weather location |
 
 ## References
 

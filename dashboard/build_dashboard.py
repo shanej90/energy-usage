@@ -11,7 +11,8 @@ Usage
 
 Environment variables (override env.ini values — used in CI):
     OCTOPUS_API_KEY, ELECTRICITY_MPAN, ELECTRICITY_SERIAL,
-    GAS_MPRN, GAS_SERIAL, ELECTRICITY_TARIFF_CODE, GAS_TARIFF_CODE
+    GAS_MPRN, GAS_SERIAL, ELECTRICITY_TARIFF_CODE, GAS_TARIFF_CODE,
+    WEATHER_LAT, WEATHER_LON, WEATHER_LOCATION
 """
 
 import os
@@ -53,11 +54,18 @@ GAS_IS_M3  = None   # auto-detect; set True/False to override
 CACHE_DIR  = os.path.join(PROJECT_ROOT, "data", "cache")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs")
 
-# Weather location — change these in env.ini to use a different location.
-# Defaults: Exeter, UK.
-WEATHER_LAT      = float(_env("WEATHER_LAT")  or DEFAULT_LAT)
-WEATHER_LON      = float(_env("WEATHER_LON")  or DEFAULT_LON)
-WEATHER_LOCATION = _env("WEATHER_LOCATION")   or DEFAULT_LOCATION
+# Weather location — must be set in env.ini (or as environment variables in CI).
+_lat  = _env("WEATHER_LAT")
+_lon  = _env("WEATHER_LON")
+_loc  = _env("WEATHER_LOCATION")
+if not (_lat and _lon and _loc):
+    raise SystemExit(
+        "Missing weather location config.  Add WEATHER_LAT, WEATHER_LON, and "
+        "WEATHER_LOCATION to env.ini (or as repository secrets for CI)."
+    )
+WEATHER_LAT      = float(_lat)
+WEATHER_LON      = float(_lon)
+WEATHER_LOCATION = _loc
 
 # Data cutoff: include up to and including the penultimate full day before today.
 # Running on 12 Apr → cutoff = 11 Apr 00:00 UTC → last slot is 10 Apr 23:30 UTC.
@@ -905,6 +913,9 @@ def build_forecast_tool_html(models, location_name, climate_normals=None):
     ERA5 reanalysis &mdash;
     <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
     WMO 1991&#x2013;2020 standard reference period.
+    Sunshine hours are estimated using the FAO-56 Angstrom-Prescott formula
+    (derived from daily shortwave radiation vs. extraterrestrial radiation);
+    ERA5 pre-computed sunshine duration tends to overestimate in cloudy climates.
   </p>
 </details>"""
 

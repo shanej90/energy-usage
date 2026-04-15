@@ -26,7 +26,8 @@ date                 : date (UTC midnight, tz-naive)
 temp_max             : float  — daily maximum 2 m air temperature (°C)
 temp_min             : float  — daily minimum 2 m air temperature (°C)
 temp_mean            : float  — daily mean 2 m air temperature (°C)
-sunshine_hours       : float  — daily sunshine duration (hours)
+sunshine_hours       : float  — estimated sunshine hours (Angstrom-Prescott,
+                         derived from shortwave_radiation_sum vs Ra)
 solar_elevation_deg  : float  — solar noon elevation angle (degrees above horizon)
 """
 
@@ -49,10 +50,15 @@ DEFAULT_LOCATION = "Exeter, UK"
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 CACHE_NAME  = "weather_daily"
 _DAILY_VARS = ("temperature_2m_max,temperature_2m_min,"
-               "temperature_2m_mean,sunshine_duration")
+               "temperature_2m_mean,shortwave_radiation_sum")
 
 # The archive API has a ~5-day lag before data is finalised.
 _ARCHIVE_LAG_DAYS = 6
+
+# Angstrom-Prescott constants (FAO-56 standard values, dimensionless)
+# S = N × (Rs/Ra − _AP_A) / _AP_B   clamped to [0, N]
+_AP_A = 0.25
+_AP_B = 0.50
 
 
 # ── Solar geometry ────────────────────────────────────────────────────────────
@@ -81,6 +87,68 @@ def solar_noon_elevation(date, latitude_deg: float) -> float:
         math.asin(math.sin(lat) * math.sin(dec) + math.cos(lat) * math.cos(dec))
     )
     return round(elev, 2)
+
+
+def _angstrom_prescott_sunshine(date, rs_mj: float, latitude_deg: float) -> float:
+    """
+    Estimate sunshine hours using the FAO-56 Angstrom-Prescott formula.
+
+    ERA5's pre-computed sunshine_duration is derived from a coarse (~25 km)
+    model grid and systematically overestimates sunshine in cloudy maritime
+    climates.  Deriving sunshine hours from the daily shortwave radiation sum
+    (Rs) relative to extraterrestrial radiation (Ra) produces values that are
+    better calibrated and scale naturally with location: sunnier places still
+    yield proportionally more sunshine hours.
+
+    Formula: S = N × (Rs/Ra − a) / b,  clamped to [0, N]
+
+    Parameters
+    ----------
+    date          : any object with a .timetuple() method
+    rs_mj         : daily shortwave radiation sum (MJ/m²)
+    latitude_deg  : observer latitude in decimal degrees
+
+    Returns
+    -------
+    float — estimated sunshine hours for the day
+    """
+    if rs_mj is None or rs_mj <= 0:
+        return 0.0
+
+    n   = date.timetuple().tm_yday
+    phi = math.radians(latitude_deg)
+
+    # Solar declination (FAO-56 eq. 24)
+    delta = 0.409 * math.sin(2 * math.pi * n / 365 - 1.39)
+
+    # Sunset hour angle (FAO-56 eq. 25)
+    cos_ws = -math.tan(phi) * math.tan(delta)
+    cos_ws = max(-1.0, min(1.0, cos_ws))   # clamp for polar edge cases
+    omega_s = math.acos(cos_ws)
+
+    # Astronomical day length N (FAO-56 eq. 34)
+    day_length = (24.0 / math.pi) * omega_s
+
+    if day_length <= 0:
+        return 0.0
+
+    # Inverse relative Earth-Sun distance (FAO-56 eq. 23)
+    dr = 1.0 + 0.033 * math.cos(2 * math.pi * n / 365)
+
+    # Extraterrestrial radiation Ra (MJ/m²/day, FAO-56 eq. 21)
+    gsc = 0.0820   # MJ/m²/min
+    ra = (
+        (24.0 * 60.0 / math.pi) * gsc * dr
+        * (omega_s * math.sin(phi) * math.sin(delta)
+           + math.cos(phi) * math.cos(delta) * math.sin(omega_s))
+    )
+
+    if ra <= 0:
+        return 0.0
+
+    # Angstrom-Prescott sunshine hours
+    sunshine = day_length * (rs_mj / ra - _AP_A) / _AP_B
+    return round(max(0.0, min(day_length, sunshine)), 2)
 
 
 # ── API fetch ─────────────────────────────────────────────────────────────────
@@ -125,16 +193,22 @@ def fetch_weather(
     resp.raise_for_status()
     daily = resp.json().get("daily", {})
 
-    dates      = daily.get("time", [])
-    sunshine_s = daily.get("sunshine_duration", [None] * len(dates))
+    dates = daily.get("time", [])
+    rs    = daily.get("shortwave_radiation_sum", [None] * len(dates))
 
     df = pd.DataFrame({
-        "date":           pd.to_datetime(dates),
-        "temp_max":       daily.get("temperature_2m_max",  [None] * len(dates)),
-        "temp_min":       daily.get("temperature_2m_min",  [None] * len(dates)),
-        "temp_mean":      daily.get("temperature_2m_mean", [None] * len(dates)),
-        "sunshine_hours": [s / 3600.0 if s is not None else None for s in sunshine_s],
+        "date":     pd.to_datetime(dates),
+        "temp_max": daily.get("temperature_2m_max",  [None] * len(dates)),
+        "temp_min": daily.get("temperature_2m_min",  [None] * len(dates)),
+        "temp_mean": daily.get("temperature_2m_mean", [None] * len(dates)),
+        "shortwave_radiation_sum": rs,
     })
+    df["sunshine_hours"] = df.apply(
+        lambda row: _angstrom_prescott_sunshine(
+            row["date"], row["shortwave_radiation_sum"], lat
+        ),
+        axis=1,
+    )
     df["solar_elevation_deg"] = df["date"].apply(
         lambda d: solar_noon_elevation(d, lat)
     )
@@ -251,17 +325,23 @@ def fetch_climate_normals(
     resp.raise_for_status()
     daily = resp.json().get("daily", {})
 
-    dates      = daily.get("time", [])
-    sunshine_s = daily.get("sunshine_duration", [None] * len(dates))
+    dates = daily.get("time", [])
+    rs    = daily.get("shortwave_radiation_sum", [None] * len(dates))
 
     df = pd.DataFrame({
-        "date":           pd.to_datetime(dates),
-        "temp_max":       daily.get("temperature_2m_max",  [None] * len(dates)),
-        "temp_min":       daily.get("temperature_2m_min",  [None] * len(dates)),
-        "temp_mean":      daily.get("temperature_2m_mean", [None] * len(dates)),
-        "sunshine_hours": [s / 3600.0 if s is not None else None for s in sunshine_s],
+        "date":     pd.to_datetime(dates),
+        "temp_max": daily.get("temperature_2m_max",  [None] * len(dates)),
+        "temp_min": daily.get("temperature_2m_min",  [None] * len(dates)),
+        "temp_mean": daily.get("temperature_2m_mean", [None] * len(dates)),
+        "shortwave_radiation_sum": rs,
     })
     df = df.dropna(subset=["temp_mean"])
+    df["sunshine_hours"] = df.apply(
+        lambda row: _angstrom_prescott_sunshine(
+            row["date"], row["shortwave_radiation_sum"], lat
+        ),
+        axis=1,
+    )
     df["month"] = df["date"].dt.month
 
     return (
