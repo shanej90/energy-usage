@@ -216,13 +216,34 @@ def aggregate(df: pd.DataFrame, period: str) -> pd.DataFrame:
     df = df.copy()
     local = df["interval_start"].dt.tz_convert(_TZ_LONDON)
     df["period"] = _period_label(local, period)
+    df["_local_date"] = local.dt.normalize()
 
+    # Sum energy columns only — standing charge is handled separately below.
     sum_cols = ["consumption_kwh"]
-    for col in ("cost_p", "cost_gbp", "sc_slot_p", "sc_slot_gbp", "total_cost_gbp"):
+    for col in ("cost_p", "cost_gbp"):
         if col in df.columns:
             sum_cols.append(col)
 
     result = df.groupby("period")[sum_cols].sum().reset_index()
+
+    # Standing charges: one full day's charge per distinct calendar day in the
+    # period, regardless of how many half-hourly slots are present in the data.
+    # Summing sc_slot_gbp would under-charge any day with missing slots.
+    if "sc_p_per_day" in df.columns:
+        daily_sc = (
+            df.groupby(["period", "_local_date"])["sc_p_per_day"]
+            .first()
+            .reset_index()
+        )
+        period_sc = daily_sc.groupby("period")["sc_p_per_day"].sum().reset_index()
+        period_sc["sc_slot_p"]   = period_sc["sc_p_per_day"]
+        period_sc["sc_slot_gbp"] = period_sc["sc_slot_p"] / 100
+        result = result.merge(
+            period_sc[["period", "sc_slot_p", "sc_slot_gbp"]],
+            on = "period", how = "left",
+        )
+        result["total_cost_gbp"] = result["cost_gbp"] + result["sc_slot_gbp"]
+
     return result
 
 

@@ -75,8 +75,8 @@ python dashboard/build_dashboard.py
 ```
 
 The first run fetches your full consumption history from the API (10–30 s depending
-on history length).  Subsequent runs load from the Parquet cache in `data/cache/`
-in under a second and only pull new records from the API.
+on history length) and writes Parquet files to `data/cache/`.  Subsequent local runs
+load from that cache and only pull new records from the API, completing in under a second.
 
 A self-contained `outputs/dashboard.html` is produced at the end.
 
@@ -129,9 +129,11 @@ rather than waiting until 07:00 UTC.
 ### Notes
 
 - The workflow uses `[skip ci]` in its commit message to prevent triggering itself.
-- The data cache (`data/cache/`) is not committed, so each CI run fetches fresh
-  data from the Octopus API.  This is fast because the API only returns new records
-  since the last known timestamp (incremental refresh).
+- The data cache (`data/cache/`) is gitignored and never committed, so each CI run
+  starts without a cache and performs a full history fetch from the Octopus API.
+  This differs from local runs, where the Parquet cache persists between builds and
+  only new records are pulled.  A full fetch takes 10–30 s depending on history
+  length; at one run per day this is well within the API's limits.
 - To change the schedule, edit the `cron` expression in the workflow file.
   [crontab.guru](https://crontab.guru/) is a useful reference.
 

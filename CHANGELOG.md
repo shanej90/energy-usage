@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.2] - 2026-04-15
+
+### Fixed
+- **Standing charge aggregation**: monthly (and weekly/yearly) standing charge totals were incorrect whenever any half-hourly consumption slots were missing from the data. The aggregation now counts distinct calendar days per period and multiplies by the daily rate, so every day always accrues exactly one full day's standing charge regardless of slot completeness.
+
+### Changed
+- **Weather location variables are now required**: `WEATHER_LAT`, `WEATHER_LON`, and `WEATHER_LOCATION` must be set in `env.ini` (or as CI secrets). The dashboard previously silently fell back to hardcoded Exeter, UK coordinates if these were absent; it now exits immediately with a clear error message.
+- **Docs: local vs CI caching behaviour clarified**: the readme previously stated that CI runs perform an incremental refresh. In fact the data cache (`data/cache/`) is gitignored and not available to CI, so each GitHub Actions run performs a full history fetch from the API. The readme now explains this distinction and notes that a full fetch is well within the API's limits at one run per day.
+
+---
+
 ## [1.0.1] - 2026-04-14
 
 ### Changed
