@@ -661,6 +661,112 @@ def build_tariff_fig(unit_rates_df, sc_df, fuel_label, color, fill_color):
     return fig
 
 
+def build_tariff_history_html(
+    elec_agreements, gas_agreements,
+    elec_rates_df, elec_sc_df,
+    gas_rates_df,  gas_sc_df,
+) -> str:
+    """
+    Build an expandable HTML block showing tariff history per fuel.
+
+    Agreements are listed newest-first.  Each row is a <details> element:
+      • <summary> shows the date range and tariff code prominently.
+      • Expanded body shows unit rate, standing charge, etc.
+    """
+    def _ds(s):
+        if not s:
+            return "?"
+        try:
+            ts  = pd.Timestamp(s, tz = "UTC")
+            return f"{ts.day} {ts.strftime('%b %Y')}"
+        except Exception:
+            return str(s)[:10]
+
+    def _fp(v):  return f"{v:.2f}p"  if v is not None else "N/A"
+    def _fg(v):  return f"\u00a3{v:.4f}" if v is not None else "N/A"
+    def _fga(v): return f"\u00a3{v:.2f}"  if v is not None else "N/A"
+
+    def _render_fuel(agreements, ur_df, sc_df):
+        if not agreements:
+            return "<p style='color:#888;font-size:13px'>No agreement data available.</p>"
+
+        sorted_agmts = sorted(
+            agreements,
+            key     = lambda a: a.get("valid_from") or "",
+            reverse = True,
+        )
+
+        parts = []
+        for i, ag in enumerate(sorted_agmts):
+            tc = ag.get("tariff_code", "\u2014")
+            vf = ag.get("valid_from")
+            vt = ag.get("valid_to")
+            date_range = f"{_ds(vf)} to {'present' if not vt else _ds(vt)}"
+
+            rs      = _agreement_rate_summary(ag, ur_df, sc_df)
+            ur_row  = rs["ur"]
+            sc_row  = rs["sc"]
+            var_note = (
+                " <em style='color:#888;font-size:10px'>"
+                "(variable tariff \u2014 first rate shown)</em>"
+                if rs["is_variable"] else ""
+            )
+
+            ur_inc = _fp(ur_row["value_inc_vat"] if ur_row is not None else None) + var_note
+            ur_exc = _fp(ur_row["value_exc_vat"] if ur_row is not None else None) + var_note
+            sc_val   = sc_row["value_inc_vat"] if sc_row is not None else None
+            sc_p_inc = _fp( sc_val)
+            sc_p_exc = _fp( sc_row["value_exc_vat"] if sc_row is not None else None)
+            sc_gbp   = _fg( sc_val / 100 if sc_val is not None else None)
+            ann_sc   = _fga(sc_val / 100 * 365 if sc_val is not None else None)
+
+            rows_html = "".join(
+                f"<tr>"
+                f"<td style='padding:5px 10px;color:#555;font-size:12px;white-space:nowrap'>{lbl}</td>"
+                f"<td style='padding:5px 10px;font-size:12px;font-weight:500'>{val}</td>"
+                f"</tr>"
+                for lbl, val in [
+                    ("Unit rate (p/kWh, incl. VAT)",             ur_inc),
+                    ("Unit rate (p/kWh, excl. VAT)",             ur_exc),
+                    ("Standing charge (p/day, incl. VAT)",       sc_p_inc),
+                    ("Standing charge (p/day, excl. VAT)",       sc_p_exc),
+                    ("Standing charge (\u00a3/day, incl. VAT)",  sc_gbp),
+                    ("Standing charge annualised (\u00a3/year)", ann_sc),
+                ]
+            )
+
+            open_attr = " open" if i == 0 else ""
+            parts.append(
+                f'<details{open_attr} class="tariff-ag">'
+                f'<summary class="tariff-ag-summary">'
+                f'<span class="tariff-ag-date">{date_range}</span>'
+                f'<code class="tariff-ag-code">{tc}</code>'
+                f'</summary>'
+                f'<div class="tariff-ag-body">'
+                f'<table style="border-collapse:collapse;width:100%">{rows_html}</table>'
+                f'</div>'
+                f'</details>'
+            )
+
+        return "\n".join(parts)
+
+    elec_html = _render_fuel(elec_agreements, elec_rates_df, elec_sc_df)
+    gas_html  = _render_fuel(gas_agreements,  gas_rates_df,  gas_sc_df)
+
+    return (
+        '<div class="tariff-history-grid">'
+        '<div>'
+        '<h4 class="tariff-fuel-heading">&#x26A1; Electricity Tariff History</h4>'
+        + elec_html +
+        '</div>'
+        '<div>'
+        '<h4 class="tariff-fuel-heading">&#x1F525; Gas Tariff History</h4>'
+        + gas_html +
+        '</div>'
+        '</div>'
+    )
+
+
 # ── Weather scatter chart builders ───────────────────────────────────────────
 
 _MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -1131,10 +1237,6 @@ elec_hm_lookup  = _compute_heatmap_lookup(elec_df, DATA_YEARS)
 gas_hm_lookup   = _compute_heatmap_lookup(gas_df,  DATA_YEARS)
 profile_lookup  = _compute_profile_lookup(elec_df, gas_df, DATA_YEARS)
 
-fig_rates_summary = build_rates_summary_fig(
-    elec_summary, gas_summary, elec_tariff_code, gas_tariff_code
-)
-
 if HAS_WEATHER:
     print("Building weather charts…")
     fig_temp_scatter     = build_temp_scatter_fig(
@@ -1146,19 +1248,113 @@ if HAS_WEATHER:
     forecast_html = build_forecast_tool_html(energy_models, WEATHER_LOCATION,
                                               climate_normals)
 
-# sections format: (heading, [(fig, div_id_or_None), ...])
-# div_id is used for pattern charts so JS can target them by ID.
-elec_figs = [(fig_elec_usage, None)]
+# ── Daily-data serialisation helpers ─────────────────────────────────────────
+
+def _daily_to_js(daily_df: pd.DataFrame) -> list:
+    """
+    Serialise the daily-aggregation DataFrame to a JSON-friendly list.
+
+    Each record: {"d": "YYYY-MM-DD", "kwh": float[, "cost": float, "sc": float]}
+    Only "cost" and "sc" keys are included when those columns are present.
+    """
+    rows = []
+    has_cost = "cost_gbp"    in daily_df.columns
+    has_sc   = "sc_slot_gbp" in daily_df.columns
+    for _, r in daily_df.iterrows():
+        row: dict = {
+            "d":   str(r["period"].date()),
+            "kwh": round(float(r["consumption_kwh"]), 4),
+        }
+        if has_cost and pd.notna(r["cost_gbp"]):
+            row["cost"] = round(float(r["cost_gbp"]), 4)
+        if has_sc and pd.notna(r["sc_slot_gbp"]):
+            row["sc"] = round(float(r["sc_slot_gbp"]), 4)
+        rows.append(row)
+    return rows
+
+
+def _agreement_rate_summary(
+    ag: dict,
+    unit_rates_df: pd.DataFrame,
+    sc_df: pd.DataFrame,
+) -> dict:
+    """
+    Return representative rate figures for a single tariff agreement.
+
+    Searches for rates whose valid_from falls within the agreement window;
+    falls back to the last rate before the window if none is found inside it.
+    """
+    vf = pd.Timestamp(ag["valid_from"], tz="UTC") if ag.get("valid_from") else None
+    vt = pd.Timestamp(ag["valid_to"],   tz="UTC") if ag.get("valid_to")   else None
+
+    def _window(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+        mask = pd.Series(True, index=df.index)
+        if vf is not None:
+            mask &= df["valid_from"] >= vf
+        if vt is not None:
+            mask &= df["valid_from"] < vt
+        return df[mask].sort_values("valid_from")
+
+    def _fallback(df: pd.DataFrame):
+        if df.empty or vf is None:
+            return None
+        prior = df[df["valid_from"] < vf].sort_values("valid_from")
+        return prior.iloc[-1] if not prior.empty else None
+
+    ur_win = _window(unit_rates_df)
+    sc_win = _window(sc_df)
+
+    ur_row = ur_win.iloc[0] if not ur_win.empty else _fallback(unit_rates_df)
+    sc_row = sc_win.iloc[0] if not sc_win.empty else _fallback(sc_df)
+
+    return {
+        "ur":          ur_row,
+        "sc":          sc_row,
+        "n_ur":        len(ur_win),
+        "is_variable": len(ur_win) > 48,   # Agile / time-of-use tariffs
+    }
+
+
+# ── Timeseries chart configs (passed to JS for client-side reaggregation) ─────
+# n_per = traces per period (1 = usage only; 2 = energy cost + standing charge)
+_n_per_ec = (1 if has_elec_costs else 0) + (1 if "sc_slot_gbp" in elec_aggs["day"].columns else 0)
+_n_per_gc = (1 if has_gas_costs  else 0) + (1 if "sc_slot_gbp" in gas_aggs["day"].columns  else 0)
+
+ts_configs: dict = {
+    "ts-elec-usage": {"fuel": "elec", "metric": "usage", "nPer": 1},
+    "ts-gas-usage":  {"fuel": "gas",  "metric": "usage", "nPer": 1},
+}
 if fig_elec_cost is not None:
-    elec_figs.append((fig_elec_cost, None))
+    ts_configs["ts-elec-cost"] = {"fuel": "elec", "metric": "cost", "nPer": _n_per_ec}
+if fig_gas_cost is not None:
+    ts_configs["ts-gas-cost"]  = {"fuel": "gas",  "metric": "cost", "nPer": _n_per_gc}
+
+elec_daily_js = _daily_to_js(elec_aggs["day"])
+gas_daily_js  = _daily_to_js(gas_aggs["day"])
+
+# ── Tariff history HTML (replaces the Plotly summary table) ───────────────────
+tariff_history_html = build_tariff_history_html(
+    elec_agreements, gas_agreements,
+    elec_rates_df, elec_sc_df,
+    gas_rates_df,  gas_sc_df,
+)
+
+# sections format: (heading, [(fig_or_html, div_id_or_None), ...])
+# Timeseries charts get "ts-*" div_ids so the JS filter can reaggregate them.
+# Pattern charts keep their existing IDs (hm-elec, hm-gas, chart-profile).
+elec_figs = [(fig_elec_usage, "ts-elec-usage")]
+if fig_elec_cost is not None:
+    elec_figs.append((fig_elec_cost, "ts-elec-cost"))
 elec_figs.append((fig_elec_hm, "hm-elec"))
 
-gas_figs = [(fig_gas_usage, None)]
+gas_figs = [(fig_gas_usage, "ts-gas-usage")]
 if fig_gas_cost is not None:
-    gas_figs.append((fig_gas_cost, None))
+    gas_figs.append((fig_gas_cost, "ts-gas-cost"))
 gas_figs.append((fig_gas_hm, "hm-gas"))
 
-tariff_figs = [(fig_rates_summary, None)]
+tariff_figs = [(tariff_history_html, None)]
 if has_elec_tariff:
     tariff_figs.append((build_tariff_fig(
         elec_rates_df, elec_sc_df,
@@ -1193,6 +1389,7 @@ sections.append(("&#x1F4CB; Tariff Details", tariff_figs))
 
 def build_dashboard_html(sections, output_path, data_years,
                          elec_hm_lookup, gas_hm_lookup, profile_lookup,
+                         elec_daily=None, gas_daily=None, ts_configs=None,
                          built_at=None):
     css = """
     * { box-sizing: border-box; }
@@ -1270,6 +1467,29 @@ def build_dashboard_html(sections, output_path, data_years,
               font-size: 11px; color: #aaa; border-top: 1px solid #e0e0e0;
               margin-top: 8px; }
     #attrib a { color: #888; }
+    /* Period total bar beneath timeseries charts */
+    .chart-total-bar { padding: 2px 16px 8px; font-size: 13px; text-align: right;
+                       border-top: 1px solid #f0f0f0; margin-top: 2px; }
+    .chart-total-bar .total-label { color: #999; }
+    .chart-total-bar .total-value { font-weight: 700; color: #2c3e50; margin-left: 5px; }
+    /* Tariff history nested table */
+    .tariff-history-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    @media (max-width: 900px) { .tariff-history-grid { grid-template-columns: 1fr; } }
+    .tariff-fuel-heading { margin: 0 0 10px; font-size: 14px; color: #2c3e50; }
+    .tariff-ag { border: 1px solid #dde3ea; border-radius: 6px; margin-bottom: 8px;
+                 overflow: hidden; }
+    .tariff-ag-summary { padding: 10px 14px; background: #f4f6f8; cursor: pointer;
+                         display: flex; align-items: baseline; gap: 12px;
+                         user-select: none; list-style: none; }
+    .tariff-ag-summary::-webkit-details-marker { display: none; }
+    .tariff-ag-summary::before { content: "\\25B6"; font-size: 9px; color: #8aa;
+                                  transition: transform .15s; flex-shrink: 0; }
+    details.tariff-ag[open] > .tariff-ag-summary::before { transform: rotate(90deg); }
+    .tariff-ag-date { font-size: 13px; font-weight: 600; color: #2c3e50; white-space: nowrap; }
+    .tariff-ag-code { font-size: 11px; color: #666; background: #e8ecf0;
+                      padding: 2px 6px; border-radius: 3px; word-break: break-all; }
+    .tariff-ag-body { padding: 4px 0 6px; }
+    .tariff-ag-body tr:nth-child(even) { background: #fafbfc; }
     """
 
     year_checkboxes = "".join(
@@ -1319,10 +1539,15 @@ def build_dashboard_html(sections, output_path, data_years,
     hm_gas_json   = _json.dumps(gas_hm_lookup)
     profile_json  = _json.dumps(profile_lookup)
 
+    elec_daily_json = _json.dumps(elec_daily or [])
+    gas_daily_json  = _json.dumps(gas_daily  or [])
+    ts_charts_json  = _json.dumps(ts_configs or {})
+
     # JS injected at end of body — runs after Plotly has initialised all charts.
     # Two filter pathways:
-    #   1. Timeseries charts (date x-axis): x-axis range + per-bar opacity via Plotly.update()
-    #   2. Pattern charts (heatmap, profile): data swapped from pre-computed lookups
+    #   1. Timeseries charts: daily data is re-aggregated client-side and traces
+    #      are updated via Plotly.restyle — tooltips and totals are always correct.
+    #   2. Pattern charts (heatmap, profile): data swapped from pre-computed lookups.
     js = f"""<script>
 // ── Pre-computed pattern-chart lookups ────────────────────────────────────────
 // Keys: year ("all"|"2024"|...), then month ("0"=all | "1"–"12")
@@ -1331,6 +1556,16 @@ def build_dashboard_html(sections, output_path, data_years,
 var HM_ELEC   = {hm_elec_json};
 var HM_GAS    = {hm_gas_json};
 var PROFILE   = {profile_json};
+
+// ── Daily data for client-side reaggregation ──────────────────────────────────
+// Records: {{d:"YYYY-MM-DD", kwh:float [, cost:float, sc:float]}}
+var DAILY_ELEC = {elec_daily_json};
+var DAILY_GAS  = {gas_daily_json};
+
+// Map of timeseries chart div-id → {{fuel, metric, nPer}}
+var TS_CHARTS  = {ts_charts_json};
+
+var TS_PERIODS = ["day", "week", "month", "year"];
 
 // ── Dropdown helpers ──────────────────────────────────────────────────────────
 function ddToggle(id) {{
@@ -1353,14 +1588,12 @@ function ddUpdateLabel(dd) {{
     }}
 }}
 
-// Close dropdowns when clicking outside
 document.addEventListener('click', function(e) {{
     if (!e.target.closest('.fb-dd')) {{
         document.querySelectorAll('.fb-dd.open').forEach(function(d) {{ d.classList.remove('open'); }});
     }}
 }});
 
-// Wire checkbox changes: update label then run filters
 document.querySelectorAll('.fb-dd-panel').forEach(function(panel) {{
     panel.addEventListener('change', function() {{
         ddUpdateLabel(panel.closest('.fb-dd'));
@@ -1368,7 +1601,6 @@ document.querySelectorAll('.fb-dd-panel').forEach(function(panel) {{
     }});
 }});
 
-// Return array of checked checkbox values for a dropdown, or null (= all).
 function getSelectedValues(ddId) {{
     var checks = Array.from(document.querySelectorAll('#' + ddId + ' input[type=checkbox]:checked'));
     var vals = checks.map(function(c) {{ return c.value; }});
@@ -1381,50 +1613,112 @@ function ddClearAll(ddId) {{
     ddUpdateLabel(dd);
 }}
 
-// ── Timeseries helpers ────────────────────────────────────────────────────────
-function getTimeDivs() {{
-    return Array.from(document.querySelectorAll('.js-plotly-plot')).filter(function(d) {{
-        return d._fullLayout && d._fullLayout.xaxis && d._fullLayout.xaxis.type === 'date';
+// ── Date / period helpers ─────────────────────────────────────────────────────
+
+function _weekStart(dateStr) {{
+    // Returns the ISO Monday for the week containing dateStr (YYYY-MM-DD).
+    var d   = new Date(dateStr + 'T00:00:00Z');
+    var day = d.getUTCDay();                // 0=Sun … 6=Sat
+    var off = (day === 0) ? -6 : (1 - day);
+    d.setUTCDate(d.getUTCDate() + off);
+    return d.toISOString().slice(0, 10);
+}}
+
+function _periodX(dateStr, period) {{
+    if (period === 'day')   return dateStr;
+    if (period === 'week')  return _weekStart(dateStr);
+    if (period === 'month') return dateStr.slice(0, 7) + '-01';
+    if (period === 'year')  return dateStr.slice(0, 4) + '-01-01';
+    return dateStr;
+}}
+
+function _reaggregate(data, period) {{
+    var groups = {{}}, order = [];
+    data.forEach(function(r) {{
+        var k = _periodX(r.d, period);
+        if (!groups[k]) {{ groups[k] = {{x: k, kwh: 0, cost: 0, sc: 0}}; order.push(k); }}
+        groups[k].kwh  += r.kwh  || 0;
+        groups[k].cost += r.cost || 0;
+        groups[k].sc   += r.sc   || 0;
+    }});
+    return order.map(function(k) {{ return groups[k]; }});
+}}
+
+function _filterDaily(data, fromStr, toStr, yearVals, monthInts) {{
+    return data.filter(function(r) {{
+        if (fromStr  && r.d < fromStr)  return false;
+        if (toStr    && r.d > toStr)    return false;
+        if (yearVals && yearVals.length && yearVals.indexOf(r.d.slice(0, 4)) === -1) return false;
+        if (monthInts && monthInts.length) {{
+            var m = parseInt(r.d.slice(5, 7), 10);
+            if (monthInts.indexOf(m) === -1) return false;
+        }}
+        return true;
     }});
 }}
 
-// True when a trace's x values are ISO date strings (e.g. "2024-01-15").
-function hasDateX(trace) {{
-    return trace.x && trace.x.length > 0 && /^\\d{{4}}-\\d{{2}}/.test(String(trace.x[0]));
-}}
+// ── Timeseries chart update ───────────────────────────────────────────────────
 
-// Apply x-axis range + optional month-fade to every timeseries chart.
-// yearVals : array of year strings, or null (all years).
-// monthVals: array of month ints 1-12, or null (all months).
-function _applyToTimeseries(from, to, yearVals, monthVals) {{
-    var layoutUpdate = (from || to)
-        ? {{'xaxis.range[0]': from, 'xaxis.range[1]': to, 'xaxis.autorange': false}}
-        : {{'xaxis.autorange': true}};
-    getTimeDivs().forEach(function(div) {{
-        var traceIndices = [], opacities = [];
-        div.data.forEach(function(trace, i) {{
-            if (!hasDateX(trace)) return;
-            traceIndices.push(i);
-            opacities.push(
-                (monthVals && monthVals.length)
-                ? trace.x.map(function(x) {{
-                      return monthVals.indexOf(new Date(x).getMonth() + 1) >= 0 ? 1.0 : 0.1;
-                  }})
-                : 1.0
-            );
+function _updateTimeseriesCharts(filteredElec, filteredGas) {{
+    Object.keys(TS_CHARTS).forEach(function(divId) {{
+        var div = document.getElementById(divId);
+        if (!div) return;
+        var cfg  = TS_CHARTS[divId];
+        var data = (cfg.fuel === 'elec') ? filteredElec : filteredGas;
+        var nPer = cfg.nPer;
+
+        var xUp = [], yUp = [], tidx = [];
+
+        TS_PERIODS.forEach(function(period, pi) {{
+            var agg = _reaggregate(data, period);
+            var xs  = agg.map(function(r) {{ return r.x; }});
+
+            if (cfg.metric === 'usage') {{
+                xUp.push(xs);
+                yUp.push(agg.map(function(r) {{ return r.kwh; }}));
+                tidx.push(pi);
+            }} else {{
+                // nPer 1 = energy only; 2 = energy + standing charge
+                xUp.push(xs);
+                yUp.push(agg.map(function(r) {{ return r.cost; }}));
+                tidx.push(pi * nPer);
+                if (nPer >= 2) {{
+                    xUp.push(xs);
+                    yUp.push(agg.map(function(r) {{ return r.sc; }}));
+                    tidx.push(pi * nPer + 1);
+                }}
+            }}
         }});
-        if (traceIndices.length > 0) {{
-            Plotly.update(div, {{'marker.opacity': opacities}}, layoutUpdate, traceIndices);
-        }} else {{
-            Plotly.relayout(div, layoutUpdate);
+
+        if (tidx.length) {{
+            Plotly.restyle(div, {{x: xUp, y: yUp}}, tidx).then(function() {{
+                Plotly.relayout(div, {{'xaxis.autorange': true}});
+            }});
+        }}
+
+        // Update the filtered total beneath this chart.
+        var totalDiv = document.getElementById('total-' + divId);
+        if (totalDiv) {{
+            var total = 0;
+            data.forEach(function(r) {{
+                if (cfg.metric === 'usage') total += r.kwh  || 0;
+                else                        total += (r.cost || 0) + (r.sc || 0);
+            }});
+            var span = totalDiv.querySelector('.total-value');
+            if (span) {{
+                if (cfg.metric === 'usage') {{
+                    span.textContent = total.toLocaleString('en-GB', {{maximumFractionDigits: 1}}) + ' kWh';
+                }} else {{
+                    span.textContent = '\u00a3' + total.toLocaleString('en-GB',
+                        {{minimumFractionDigits: 2, maximumFractionDigits: 2}});
+                }}
+            }}
         }}
     }});
 }}
 
 // ── Pattern-chart helpers ─────────────────────────────────────────────────────
 
-// Weighted-average z matrix across all selected year/month combinations.
-// yearVals/monthVals are arrays of strings, or null (= all).
 function _combineHeatmaps(lookup, yearVals, monthVals) {{
     var allYears  = yearVals  ? yearVals  : Object.keys(lookup);
     var allMonths = monthVals ? monthVals : ['0'];
@@ -1461,7 +1755,6 @@ function _updateHeatmap(divId, lookup, yearVals, monthVals) {{
     Plotly.restyle(div, {{z: [z], zauto: [true]}}, [0]);
 }}
 
-// Weighted-average y array for one fuel across selected year/month combinations.
 function _combineProfiles(fuelKey, lookup, yearVals, monthVals) {{
     var allYears  = yearVals  ? yearVals  : Object.keys(lookup);
     var allMonths = monthVals ? monthVals : ['0'];
@@ -1496,19 +1789,18 @@ function _updateProfile(lookup, yearVals, monthVals) {{
 }}
 
 // ── Public API ────────────────────────────────────────────────────────────────
+
 function applyFilters() {{
     var rawYears  = getSelectedValues('dd-year');
     var rawMonths = getSelectedValues('dd-month');
     var monthInts = rawMonths
         ? rawMonths.map(function(m) {{ return parseInt(m, 10); }})
         : null;
-    // Restrict timeseries x-axis only when exactly one year is chosen
-    var from = null, to = null;
-    if (rawYears && rawYears.length === 1) {{
-        from = rawYears[0] + '-01-01';
-        to   = (parseInt(rawYears[0], 10) + 1) + '-01-01';
-    }}
-    _applyToTimeseries(from, to, rawYears, monthInts);
+
+    var fElec = _filterDaily(DAILY_ELEC, null, null, rawYears, monthInts);
+    var fGas  = _filterDaily(DAILY_GAS,  null, null, rawYears, monthInts);
+    _updateTimeseriesCharts(fElec, fGas);
+
     _updateHeatmap('hm-elec', HM_ELEC, rawYears, rawMonths);
     _updateHeatmap('hm-gas',  HM_GAS,  rawYears, rawMonths);
     _updateProfile(PROFILE, rawYears, rawMonths);
@@ -1519,7 +1811,10 @@ function applyCustomRange() {{
     var to   = document.getElementById('fb-to').value   || null;
     ddClearAll('dd-year');
     ddClearAll('dd-month');
-    _applyToTimeseries(from, to, null, null);
+    var fElec = _filterDaily(DAILY_ELEC, from, to, null, null);
+    var fGas  = _filterDaily(DAILY_GAS,  from, to, null, null);
+    _updateTimeseriesCharts(fElec, fGas);
+    // Heatmap / profile respond to year/month only, not custom date range.
 }}
 
 function clearFilters() {{
@@ -1527,7 +1822,7 @@ function clearFilters() {{
     ddClearAll('dd-month');
     document.getElementById('fb-from').value = '';
     document.getElementById('fb-to').value   = '';
-    _applyToTimeseries(null, null, null, null);
+    _updateTimeseriesCharts(DAILY_ELEC, DAILY_GAS);
     _updateHeatmap('hm-elec', HM_ELEC, null, null);
     _updateHeatmap('hm-gas',  HM_GAS,  null, null);
     _updateProfile(PROFILE, null, null);
@@ -1551,7 +1846,7 @@ function clearFilters() {{
         parts.append(f"<h2>{heading}</h2>\n")
         for fig, div_id in figs:
             if isinstance(fig, str):
-                # Raw HTML content (e.g. the forecast tool)
+                # Raw HTML content (e.g. the forecast tool or tariff history)
                 parts.append(f'<div class="card">{fig}</div>\n')
             else:
                 kwargs = {"div_id": div_id} if div_id else {}
@@ -1559,7 +1854,18 @@ function clearFilters() {{
                                   include_plotlyjs = "cdn" if include_js else False,
                                   **kwargs)
                 include_js = False
-                parts.append(f'<div class="card">{div}</div>\n')
+                if div_id and div_id.startswith("ts-"):
+                    parts.append(
+                        f'<div class="card">'
+                        f'{div}'
+                        f'<div class="chart-total-bar" id="total-{div_id}">'
+                        f'<span class="total-label">Filtered total:</span>'
+                        f'<span class="total-value">\u2014</span>'
+                        f'</div>'
+                        f'</div>\n'
+                    )
+                else:
+                    parts.append(f'<div class="card">{div}</div>\n')
 
     parts.append('</div>')   # close #main
     parts.append(
@@ -1581,4 +1887,7 @@ output_html = os.path.join(OUTPUT_DIR, "dashboard.html")
 _built_at   = pd.Timestamp.now().strftime("%d %b %Y %H:%M")
 build_dashboard_html(sections, output_html, DATA_YEARS,
                      elec_hm_lookup, gas_hm_lookup, profile_lookup,
-                     built_at=_built_at)
+                     elec_daily  = elec_daily_js,
+                     gas_daily   = gas_daily_js,
+                     ts_configs  = ts_configs,
+                     built_at    = _built_at)

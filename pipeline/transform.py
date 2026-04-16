@@ -216,7 +216,7 @@ def aggregate(df: pd.DataFrame, period: str) -> pd.DataFrame:
     df = df.copy()
     local = df["interval_start"].dt.tz_convert(_TZ_LONDON)
     df["period"] = _period_label(local, period)
-    df["_local_date"] = local.dt.normalize()
+    df["_local_date"] = local.dt.date  # plain date objects — avoids DST offset ambiguity
 
     # Sum energy columns only — standing charge is handled separately below.
     sum_cols = ["consumption_kwh"]

@@ -11,6 +11,9 @@ TL;DR - View the [final output](https://shanej90.github.io/energy-usage/outputs/
 - Cost calculations: energy cost + standing charge (requires tariff codes)
 - Aggregation to half-hour / hour / day / week / month / year
 - Interactive Plotly charts with a period selector (Daily / Weekly / Monthly / Yearly)
+- Date filter bar (year/month dropdowns and custom date range) that recalculates aggregated data client-side — tooltips and totals always reflect the filtered period
+- Filtered total (kWh or £) displayed beneath each consumption and cost chart
+- Collapsible tariff history table — all agreements listed newest-first, expandable to show full rate breakdown
 - Self-contained HTML dashboard export suitable for GitHub Pages
 - Weather integration: daily temperature and calibrated sunshine hours via Open-Meteo
 - OLS energy model with a monthly consumption forecast tool

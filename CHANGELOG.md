@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.3] - 2026-04-16
+
+### Added
+- **Filtered totals**: a "Filtered total" figure is now displayed beneath each consumption and cost timeseries chart, showing the sum (kWh or £) across the currently filtered date range.
+- **Tariff history table**: the flat current-rates table in the Tariff Details section has been replaced with a collapsible per-agreement history. Agreements are listed newest-first; each row is expandable to reveal the full rate breakdown (unit rate inc/exc VAT, standing charge p/day, £/day, and annualised £/year). Variable-rate tariffs (e.g. Agile) are flagged accordingly.
+
+### Fixed
+- **Date filter recalculates data**: applying the year/month dropdowns or a custom date range now re-aggregates bar chart data client-side from embedded daily records rather than merely zooming the axis. Tooltips and totals for partial periods (e.g. filtering to March 1–14 and viewing by month) now correctly reflect only the days within the selected range.
+
+---
+
 ## [1.0.2] - 2026-04-15
 
 ### Fixed
