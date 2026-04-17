@@ -11,6 +11,9 @@ TL;DR - View the [final output](https://shanej90.github.io/energy-usage/outputs/
 - Cost calculations: energy cost + standing charge (requires tariff codes)
 - Aggregation to half-hour / hour / day / week / month / year
 - Interactive Plotly charts with a period selector (Daily / Weekly / Monthly / Yearly)
+- Date filter bar (year/month dropdowns and custom date range) that recalculates aggregated data client-side — tooltips and totals always reflect the filtered period
+- Filtered total (kWh or £) displayed beneath each consumption and cost chart
+- Collapsible tariff history table — all agreements listed newest-first, expandable to show full rate breakdown
 - Self-contained HTML dashboard export suitable for GitHub Pages
 - Weather integration: daily temperature and calibrated sunshine hours via Open-Meteo
 - OLS energy model with a monthly consumption forecast tool
@@ -75,8 +78,8 @@ python dashboard/build_dashboard.py
 ```
 
 The first run fetches your full consumption history from the API (10–30 s depending
-on history length).  Subsequent runs load from the Parquet cache in `data/cache/`
-in under a second and only pull new records from the API.
+on history length) and writes Parquet files to `data/cache/`.  Subsequent local runs
+load from that cache and only pull new records from the API, completing in under a second.
 
 A self-contained `outputs/dashboard.html` is produced at the end.
 
@@ -129,9 +132,11 @@ rather than waiting until 07:00 UTC.
 ### Notes
 
 - The workflow uses `[skip ci]` in its commit message to prevent triggering itself.
-- The data cache (`data/cache/`) is not committed, so each CI run fetches fresh
-  data from the Octopus API.  This is fast because the API only returns new records
-  since the last known timestamp (incremental refresh).
+- The data cache (`data/cache/`) is gitignored and never committed, so each CI run
+  starts without a cache and performs a full history fetch from the Octopus API.
+  This differs from local runs, where the Parquet cache persists between builds and
+  only new records are pulled.  A full fetch takes 10–30 s depending on history
+  length; at one run per day this is well within the API's limits.
 - To change the schedule, edit the `cron` expression in the workflow file.
   [crontab.guru](https://crontab.guru/) is a useful reference.
 
