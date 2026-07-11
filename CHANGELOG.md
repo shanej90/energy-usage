@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.4] - 2026-07-11
+
+### Added
+- **Local update script**: `update_dashboard.sh` rebuilds the dashboard locally (pulling the latest Octopus/weather data via the existing Parquet cache, so only new records are fetched) and serves `outputs/` at `http://localhost:8000` for local preview, opening it in the default browser. It does not commit or push — commit `outputs/dashboard.html` yourself once you're happy with it.
+
+### Changed
+- **Zephyr theme**: the dashboard now pulls in the [Bootswatch Zephyr](https://bootswatch.com/zephyr/) stylesheet and its CSS is rewritten around `--dash-*` custom properties (surface, muted, accent, border, text) mapped to Bootstrap theme variables, replacing the previous hardcoded dark-slate palette. The filter bar now uses a blue-to-teal gradient, cards and tables pick up the theme's border/shadow treatment, and `#main` is capped at a 1480px max-width and centred.
+- **Attribution footer**: now credits Bootswatch/Zephyr alongside the existing Open-Meteo weather data credit.
+
+---
+
 ## [1.0.3] - 2026-04-16
 
 ### Added
