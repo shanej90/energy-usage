@@ -1392,46 +1392,55 @@ def build_dashboard_html(sections, output_path, data_years,
                          elec_daily=None, gas_daily=None, ts_configs=None,
                          built_at=None):
     css = """
+    :root {
+      color-scheme: light;
+      --dash-surface: var(--bs-body-bg, #ffffff);
+      --dash-muted: var(--bs-secondary-color, #6c757d);
+      --dash-accent: var(--bs-primary, #2c7be5);
+      --dash-accent-2: var(--bs-info, #17a2b8);
+      --dash-border: var(--bs-border-color, #dee2e6);
+      --dash-text: var(--bs-body-color, #1f2937);
+    }
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-           background: #f8f9fa; margin: 0; padding: 0; color: #2c3e50; }
-    .fb-run-stamp { margin-left: auto; font-size: 10px; color: #7a9ab8; white-space: nowrap; }
-    #filter-bar { position: sticky; top: 0; z-index: 100; background: #2c3e50; color: white;
+           background: var(--bs-body-bg, #f8f9fa); margin: 0; padding: 0; color: var(--dash-text); }
+    .fb-run-stamp { margin-left: auto; font-size: 10px; color: rgba(255,255,255,0.76); white-space: nowrap; }
+    #filter-bar { position: sticky; top: 0; z-index: 100; background: linear-gradient(135deg, var(--bs-primary, #2c7be5), var(--bs-info, #17a2b8)); color: white;
                   padding: 10px 24px; display: flex; align-items: center; gap: 10px;
-                  flex-wrap: wrap; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+                  flex-wrap: wrap; box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
     #filter-bar strong { font-size: 13px; white-space: nowrap; }
     .fb-group { display: flex; align-items: center; gap: 6px; }
-    .fb-btn { background: #3d5166; border: 1px solid #5a7a99; color: white;
+    .fb-btn { background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.28); color: white;
               padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-    .fb-btn:hover { background: #4a6380; }
-    .fb-sep { width: 1px; height: 20px; background: #4a6a88; }
-    .fb-date { background: #3d5166; border: 1px solid #5a7a99; color: white;
+    .fb-btn:hover { background: rgba(255,255,255,0.24); }
+    .fb-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.26); }
+    .fb-date { background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.28); color: white;
                padding: 3px 6px; border-radius: 4px; font-size: 12px; }
     /* Custom dropdown multi-select */
     .fb-dd { position: relative; display: inline-block; }
-    .fb-dd-btn { background: #3d5166; border: 1px solid #5a7a99; color: #ccc;
+    .fb-dd-btn { background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.28); color: white;
                  padding: 4px 26px 4px 10px; border-radius: 4px; cursor: pointer;
                  font-size: 12px; white-space: nowrap; min-width: 90px; text-align: left;
                  position: relative; }
     .fb-dd-btn::after { content: "\\25BE"; position: absolute; right: 8px; top: 50%;
-                        transform: translateY(-50%); font-size: 10px; color: #aac4dc; }
-    .fb-dd-btn:hover { background: #4a6380; }
+                        transform: translateY(-50%); font-size: 10px; color: rgba(255,255,255,0.78); }
+    .fb-dd-btn:hover { background: rgba(255,255,255,0.24); }
     .fb-dd-panel { display: none; position: absolute; top: calc(100% + 3px); left: 0;
-                   min-width: 130px; background: #2c3e50; border: 1px solid #5a7a99;
-                   border-radius: 4px; z-index: 200; padding: 4px 0;
+                   min-width: 130px; background: var(--bs-body-bg, #fff); color: var(--dash-text);
+                   border: 1px solid var(--dash-border); border-radius: 4px; z-index: 200; padding: 4px 0;
                    max-height: 210px; overflow-y: auto;
-                   box-shadow: 0 4px 14px rgba(0,0,0,0.35); }
+                   box-shadow: 0 4px 14px rgba(0,0,0,0.12); }
     .fb-dd.open .fb-dd-panel { display: block; }
     .fb-dd-panel label { display: flex; align-items: center; gap: 7px;
-                         padding: 5px 12px; color: #ccc; cursor: pointer; font-size: 12px; }
-    .fb-dd-panel label:hover { background: #3a5068; }
-    .fb-hint-text { font-size: 10px; color: #7a9ab8; display: block; margin-top: 2px; }
-    .fb-label { font-size: 12px; color: #aac4dc; white-space: nowrap; }
-    #main { padding: 24px; }
-    h1 { border-bottom: 3px solid #3498db; padding-bottom: 12px; margin-bottom: 24px; }
+                         padding: 5px 12px; color: var(--dash-text); cursor: pointer; font-size: 12px; }
+    .fb-dd-panel label:hover { background: rgba(0,0,0,0.04); }
+    .fb-hint-text { font-size: 10px; color: rgba(255,255,255,0.74); display: block; margin-top: 2px; }
+    .fb-label { font-size: 12px; color: rgba(255,255,255,0.9); white-space: nowrap; }
+    #main { padding: 24px; max-width: 1480px; margin: 0 auto; }
+    h1 { border-bottom: 3px solid var(--dash-accent); padding-bottom: 12px; margin-bottom: 24px; }
     h2 { margin-top: 40px; margin-bottom: 16px; }
-    .card { background: white; border-radius: 8px; padding: 12px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 20px; }
+    .card { background: var(--dash-surface); border: 1px solid var(--dash-border); border-radius: 10px; padding: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
     @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
     /* Forecast tool */
@@ -1439,57 +1448,57 @@ def build_dashboard_html(sections, output_path, data_years,
     .fc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
                gap: 12px 20px; align-items: end; margin-top: 4px; }
     .fc-field { display: flex; flex-direction: column; gap: 4px; }
-    .fc-field label { font-size: 12px; color: #555; font-weight: 500; display: flex; flex-direction: column; }
-    .fc-hint { font-size: 10px; color: #999; font-weight: 400; margin-top: 1px; }
+    .fc-field label { font-size: 12px; color: var(--dash-muted); font-weight: 500; display: flex; flex-direction: column; }
+    .fc-hint { font-size: 10px; color: var(--dash-muted); font-weight: 400; margin-top: 1px; }
     .fc-field input, .fc-field select {
-        padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
+        padding: 6px 8px; border: 1px solid var(--dash-border); border-radius: 4px;
         font-size: 13px; width: 100%; }
     .fc-btn-cell { justify-content: flex-end; }
-    .fc-calc-btn { background: #2c3e50; color: white; border: none;
+    .fc-calc-btn { background: var(--dash-accent); color: white; border: none;
                    padding: 8px 20px; border-radius: 4px; cursor: pointer;
                    font-size: 13px; font-weight: 600; width: 100%; }
-    .fc-calc-btn:hover { background: #3d5166; }
+    .fc-calc-btn:hover { background: var(--dash-accent-2); }
     .fc-result-row { display: flex; align-items: baseline; gap: 14px;
                      padding: 8px 12px; border-radius: 6px; margin-bottom: 6px;
-                     background: #f4f6f8; }
+                     background: rgba(0,0,0,0.03); }
     .fc-fuel-label { font-weight: 600; font-size: 14px; min-width: 110px; }
-    .fc-kwh  { font-size: 18px; font-weight: 700; color: #2c3e50; }
-    .fc-range { font-size: 12px; color: #666; }
+    .fc-kwh  { font-size: 18px; font-weight: 700; color: var(--dash-accent); }
+    .fc-range { font-size: 12px; color: var(--dash-muted); }
     /* Climate normals reference table */
     .fc-ref-table { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 480px; }
-    .fc-ref-table th { background: #2c3e50; color: white; padding: 6px 10px;
+    .fc-ref-table th { background: var(--dash-accent); color: white; padding: 6px 10px;
                        text-align: center; font-weight: 500; line-height: 1.3; }
-    .fc-ref-table td { padding: 5px 10px; text-align: center; border-bottom: 1px solid #eee; }
+    .fc-ref-table td { padding: 5px 10px; text-align: center; border-bottom: 1px solid var(--dash-border); }
     .fc-ref-table tr:first-child td { font-weight: 600; }
-    .fc-ref-table tr:nth-child(even) td { background: #f8f9fa; }
+    .fc-ref-table tr:nth-child(even) td { background: rgba(0,0,0,0.03); }
     /* Attribution footer */
     #attrib { text-align: center; padding: 16px 24px 20px;
-              font-size: 11px; color: #aaa; border-top: 1px solid #e0e0e0;
+              font-size: 11px; color: var(--dash-muted); border-top: 1px solid var(--dash-border);
               margin-top: 8px; }
-    #attrib a { color: #888; }
+    #attrib a { color: var(--dash-accent); }
     /* Period total bar beneath timeseries charts */
     .chart-total-bar { padding: 2px 16px 8px; font-size: 13px; text-align: right;
-                       border-top: 1px solid #f0f0f0; margin-top: 2px; }
-    .chart-total-bar .total-label { color: #999; }
-    .chart-total-bar .total-value { font-weight: 700; color: #2c3e50; margin-left: 5px; }
+                       border-top: 1px solid rgba(0,0,0,0.06); margin-top: 2px; }
+    .chart-total-bar .total-label { color: var(--dash-muted); }
+    .chart-total-bar .total-value { font-weight: 700; color: var(--dash-accent); margin-left: 5px; }
     /* Tariff history nested table */
     .tariff-history-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
     @media (max-width: 900px) { .tariff-history-grid { grid-template-columns: 1fr; } }
-    .tariff-fuel-heading { margin: 0 0 10px; font-size: 14px; color: #2c3e50; }
-    .tariff-ag { border: 1px solid #dde3ea; border-radius: 6px; margin-bottom: 8px;
+    .tariff-fuel-heading { margin: 0 0 10px; font-size: 14px; color: var(--dash-accent); }
+    .tariff-ag { border: 1px solid var(--dash-border); border-radius: 6px; margin-bottom: 8px;
                  overflow: hidden; }
-    .tariff-ag-summary { padding: 10px 14px; background: #f4f6f8; cursor: pointer;
+    .tariff-ag-summary { padding: 10px 14px; background: rgba(0,0,0,0.03); cursor: pointer;
                          display: flex; align-items: baseline; gap: 12px;
                          user-select: none; list-style: none; }
     .tariff-ag-summary::-webkit-details-marker { display: none; }
-    .tariff-ag-summary::before { content: "\\25B6"; font-size: 9px; color: #8aa;
+    .tariff-ag-summary::before { content: "\\25B6"; font-size: 9px; color: var(--dash-accent-2);
                                   transition: transform .15s; flex-shrink: 0; }
     details.tariff-ag[open] > .tariff-ag-summary::before { transform: rotate(90deg); }
-    .tariff-ag-date { font-size: 13px; font-weight: 600; color: #2c3e50; white-space: nowrap; }
-    .tariff-ag-code { font-size: 11px; color: #666; background: #e8ecf0;
+    .tariff-ag-date { font-size: 13px; font-weight: 600; color: var(--dash-text); white-space: nowrap; }
+    .tariff-ag-code { font-size: 11px; color: var(--dash-muted); background: rgba(0,0,0,0.04);
                       padding: 2px 6px; border-radius: 3px; word-break: break-all; }
     .tariff-ag-body { padding: 4px 0 6px; }
-    .tariff-ag-body tr:nth-child(even) { background: #fafbfc; }
+    .tariff-ag-body tr:nth-child(even) { background: rgba(0,0,0,0.03); }
     """
 
     year_checkboxes = "".join(
@@ -1834,6 +1843,7 @@ function clearFilters() {{
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         '<title>Energy Usage Dashboard</title>',
+        '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.3/dist/zephyr/bootstrap.min.css">',
         f'<style>{css}</style>',
         '</head><body>',
         filter_bar,
@@ -1870,6 +1880,8 @@ function clearFilters() {{
     parts.append('</div>')   # close #main
     parts.append(
         '<footer id="attrib">'
+        'Theme by <a href="https://bootswatch.com/" target="_blank" rel="noopener">Bootswatch</a> '
+        '(<a href="https://bootswatch.com/zephyr/" target="_blank" rel="noopener">Zephyr</a>) • '
         'Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a>'
         ' — licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>'
         '</footer>'
