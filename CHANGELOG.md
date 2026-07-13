@@ -4,53 +4,42 @@ All notable changes to this project will be documented here.
 
 ## [1.0.4] - 2026-07-11
 
-### Added
-- **Local update script**: `update_dashboard.sh` rebuilds the dashboard locally (pulling the latest Octopus/weather data via the existing Parquet cache, so only new records are fetched) and serves `outputs/` at `http://localhost:8000` for local preview, opening it in the default browser. It does not commit or push — commit `outputs/dashboard.html` yourself once you're happy with it.
-
-### Changed
-- **Zephyr theme**: the dashboard now pulls in the [Bootswatch Zephyr](https://bootswatch.com/zephyr/) stylesheet and its CSS is rewritten around `--dash-*` custom properties (surface, muted, accent, border, text) mapped to Bootstrap theme variables, replacing the previous hardcoded dark-slate palette. The filter bar now uses a blue-to-teal gradient, cards and tables pick up the theme's border/shadow treatment, and `#main` is capped at a 1480px max-width and centred.
-- **Attribution footer**: now credits Bootswatch/Zephyr alongside the existing Open-Meteo weather data credit.
+- Added `update_dashboard.sh` — rebuilds the dashboard locally using the existing Parquet cache (so only new records get fetched) and serves `outputs/` at `http://localhost:8000` for a quick look, opening it in your default browser. Doesn't commit or push — commit `outputs/dashboard.html` yourself once you're happy with it.
+- Dashboard now runs on the [Bootswatch Zephyr](https://bootswatch.com/zephyr/) theme. CSS rewritten around `--dash-*` custom properties (surface, muted, accent, border, text) mapped to Bootstrap theme variables, replacing the old hardcoded dark-slate palette. Filter bar gets a blue-to-teal gradient, cards and tables pick up the theme's border/shadow treatment, `#main` capped at 1480px and centred.
+- Attribution footer now credits Bootswatch/Zephyr alongside Open-Meteo.
 
 ---
 
 ## [1.0.3] - 2026-04-16
 
-### Added
-- **Filtered totals**: a "Filtered total" figure is now displayed beneath each consumption and cost timeseries chart, showing the sum (kWh or £) across the currently filtered date range.
-- **Tariff history table**: the flat current-rates table in the Tariff Details section has been replaced with a collapsible per-agreement history. Agreements are listed newest-first; each row is expandable to reveal the full rate breakdown (unit rate inc/exc VAT, standing charge p/day, £/day, and annualised £/year). Variable-rate tariffs (e.g. Agile) are flagged accordingly.
-
-### Fixed
-- **Date filter recalculates data**: applying the year/month dropdowns or a custom date range now re-aggregates bar chart data client-side from embedded daily records rather than merely zooming the axis. Tooltips and totals for partial periods (e.g. filtering to March 1–14 and viewing by month) now correctly reflect only the days within the selected range.
+- Added a "Filtered total" under each consumption/cost chart — the kWh or £ sum across whatever date range is currently filtered.
+- Tariff Details section: swapped the flat current-rates table for a collapsible per-agreement history. Newest first, expand any row for the full rate breakdown (unit rate inc/exc VAT, standing charge p/day and £/day, annualised £/year). Variable tariffs like Agile get flagged.
+- Fixed: the year/month dropdowns and custom date range now recalculate bar chart data client-side from the embedded daily records, instead of just zooming the axis. Tooltips and totals for partial periods (e.g. March 1–14 viewed by month) actually reflect only the filtered days now.
 
 ---
 
 ## [1.0.2] - 2026-04-15
 
-### Fixed
-- **Standing charge aggregation**: monthly (and weekly/yearly) standing charge totals were incorrect whenever any half-hourly consumption slots were missing from the data. The aggregation now counts distinct calendar days per period and multiplies by the daily rate, so every day always accrues exactly one full day's standing charge regardless of slot completeness.
-
-### Changed
-- **Weather location variables are now required**: `WEATHER_LAT`, `WEATHER_LON`, and `WEATHER_LOCATION` must be set in `env.ini` (or as CI secrets). The dashboard previously silently fell back to hardcoded Exeter, UK coordinates if these were absent; it now exits immediately with a clear error message.
-- **Docs: local vs CI caching behaviour clarified**: the readme previously stated that CI runs perform an incremental refresh. In fact the data cache (`data/cache/`) is gitignored and not available to CI, so each GitHub Actions run performs a full history fetch from the API. The readme now explains this distinction and notes that a full fetch is well within the API's limits at one run per day.
+- Fixed: monthly (and weekly/yearly) standing charge totals were wrong whenever any half-hourly slots were missing. Now counts distinct calendar days per period and multiplies by the daily rate, so every day accrues exactly one day's standing charge regardless of gaps.
+- `WEATHER_LAT`, `WEATHER_LON` and `WEATHER_LOCATION` are now required in `env.ini` (or as CI secrets). Previously the dashboard fell back silently to Exeter, UK if these were missing — it now exits immediately with a clear error instead.
+- Readme fix: it used to claim CI does an incremental refresh. Not true — `data/cache/` is gitignored, so every CI run does a full history fetch. Readme now says so, and notes that's fine at one run a day.
 
 ---
 
 ## [1.0.1] - 2026-04-14
 
-### Changed
-- Sunshine hours now derived via the FAO-56 Angstrom-Prescott formula (`S = N × (Rs/Ra − 0.25) / 0.50`) rather than ERA5 pre-computed `sunshine_duration`. ERA5's coarse grid (~25 km) overestimates sunshine in cloudy maritime climates; the radiation-ratio approach is location-agnostic and produces realistic values everywhere.
+- Sunshine hours now come from the FAO-56 Angstrom-Prescott formula (`S = N × (Rs/Ra − 0.25) / 0.50`) instead of ERA5's pre-computed `sunshine_duration`. ERA5's ~25 km grid overestimates sunshine in cloudy maritime climates; the radiation-ratio version is location-agnostic and works everywhere.
 
 ---
 
-## [1.0.0] — 2026-04-14
+## [1.0.0] - 2026-04-14
 
 Initial release.
 
-### Added
-- **Consumption pipeline** (`pipeline/`): paginated Octopus Energy REST API fetch for electricity and gas, with local Parquet cache (incremental refresh on subsequent runs).
-- **Cost enrichment**: full tariff history discovered automatically from account via GraphQL; unit rates matched to half-hourly intervals using `merge_asof` (correct for Agile time-of-use pricing).
-- **Weather integration** (`weather/fetch_weather.py`): daily temperature (min/mean/max) and sunshine hours from Open-Meteo ERA5 archive; solar noon elevation computed from solar geometry; WMO 1991–2020 climate normals fetched and cached per location.
-- **OLS energy model** (`models/energy_model.py`): separate electricity and gas models using HDD₁₅, min temperature, sunshine hours, solar elevation, and cyclical month encoding; R² and prediction intervals reported.
-- **Interactive dashboard** (`dashboard/build_dashboard.py`): self-contained HTML export with Plotly charts (consumption over time, temperature scatter, sunshine scatter) and a monthly forecast tool pre-filled from climate normals.
-- **GitHub Actions workflow**: daily automated dashboard rebuild and publish to GitHub Pages.
-- **Location configurability**: `WEATHER_LAT`, `WEATHER_LON`, `WEATHER_LOCATION` in `env.ini` point weather fetching and the forecast tool at any location worldwide.
+- `pipeline/`: paginated Octopus Energy REST fetch for electricity and gas, with a local Parquet cache (incremental after the first run).
+- Cost enrichment: full tariff history discovered automatically from your account via GraphQL; unit rates matched to half-hourly intervals with `merge_asof` (handles Agile time-of-use pricing correctly).
+- `weather/fetch_weather.py`: daily temperature (min/mean/max) and sunshine hours from Open-Meteo ERA5, solar noon elevation from solar geometry, WMO 1991–2020 climate normals fetched and cached per location.
+- `models/energy_model.py`: separate OLS models for electricity and gas using HDD₁₅, min temperature, sunshine hours, solar elevation and cyclical month encoding. Reports R² and prediction intervals.
+- `dashboard/build_dashboard.py`: self-contained HTML export with Plotly charts (consumption over time, temperature scatter, sunshine scatter) and a monthly forecast tool pre-filled from climate normals.
+- GitHub Actions workflow for a daily automated rebuild and publish to GitHub Pages.
+- `WEATHER_LAT`, `WEATHER_LON`, `WEATHER_LOCATION` in `env.ini` — point weather fetching and the forecast tool at any location worldwide.

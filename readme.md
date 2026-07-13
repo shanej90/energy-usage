@@ -1,20 +1,20 @@
 # Energy usage with Octopus
 
-Analysis of smart-meter electricity and gas usage via the [Octopus Energy API](https://developer.octopus.energy/). 
+Analysis of smart-meter electricity and gas usage via the [Octopus Energy API](https://developer.octopus.energy/).
 
 TL;DR - View the [final output](https://shanej90.github.io/energy-usage/outputs/dashboard.html).
 
 ## Features
 
 - Half-hourly consumption data fetched from the Octopus REST API with full pagination
-- Local Parquet cache — full history is fetched once, then only new records are pulled
-- Cost calculations: energy cost + standing charge (requires tariff codes)
+- Local Parquet cache — full history is fetched once, then only new records get pulled
+- Cost calculations: energy cost + standing charge (needs tariff codes)
 - Aggregation to half-hour / hour / day / week / month / year
 - Interactive Plotly charts with a period selector (Daily / Weekly / Monthly / Yearly)
 - Date filter bar (year/month dropdowns and custom date range) that recalculates aggregated data client-side — tooltips and totals always reflect the filtered period
-- Filtered total (kWh or £) displayed beneath each consumption and cost chart
-- Collapsible tariff history table — all agreements listed newest-first, expandable to show full rate breakdown
-- Self-contained HTML dashboard export suitable for GitHub Pages
+- Filtered total (kWh or £) shown beneath each consumption and cost chart
+- Collapsible tariff history table — every agreement listed newest-first, expandable to the full rate breakdown
+- Self-contained HTML dashboard export, ready for GitHub Pages
 - Weather integration: daily temperature and calibrated sunshine hours via Open-Meteo
 - OLS energy model with a monthly consumption forecast tool
 
@@ -69,7 +69,7 @@ WEATHER_LON          = your_longitude
 WEATHER_LOCATION     = your_location_name
 ```
 
-All values can be found on the [Octopus personal API access page](https://octopus.energy/dashboard/new/accounts/personal-details/api-access).
+All values live on the [Octopus personal API access page](https://octopus.energy/dashboard/new/accounts/personal-details/api-access).
 
 ### 3. Build the dashboard
 
@@ -77,11 +77,9 @@ All values can be found on the [Octopus personal API access page](https://octopu
 python dashboard/build_dashboard.py
 ```
 
-The first run fetches your full consumption history from the API (10–30 s depending
-on history length) and writes Parquet files to `data/cache/`.  Subsequent local runs
-load from that cache and only pull new records from the API, completing in under a second.
+First run fetches your full consumption history from the API (10–30s depending on history length) and writes Parquet files to `data/cache/`. After that, local runs load from the cache and only pull new records — under a second.
 
-A self-contained `outputs/dashboard.html` is produced at the end.
+Produces a self-contained `outputs/dashboard.html`.
 
 ## Publishing to GitHub Pages
 
@@ -93,13 +91,13 @@ A self-contained `outputs/dashboard.html` is produced at the end.
 
 A workflow at [`.github/workflows/update-dashboard.yml`](.github/workflows/update-dashboard.yml)
 runs `dashboard/build_dashboard.py` every day at 07:00 UTC, commits the refreshed
-`outputs/dashboard.html`, and pushes it — keeping the GitHub Pages dashboard up to date automatically.
+`outputs/dashboard.html`, and pushes it — keeping the dashboard current automatically.
 
 ### Setup
 
 **1. Add repository secrets**
 
-Go to **Settings → Secrets and variables → Actions → New repository secret** and add each of the following:
+Go to **Settings → Secrets and variables → Actions → New repository secret** and add each of these:
 
 | Secret name | Value |
 |---|---|
@@ -112,13 +110,13 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `WEATHER_LON` | Longitude of your location |
 | `WEATHER_LOCATION` | Display name for your location |
 
-These map directly to the `[default]` keys in `env.ini`.  The workflow writes a
-temporary `env.ini` from them at runtime; the file is never committed.
+These map directly to the `[default]` keys in `env.ini`. The workflow writes a
+temporary `env.ini` from them at runtime; it's never committed.
 
 **2. Enable GitHub Pages**
 
 Go to **Settings → Pages**, set the source branch to `main` and the folder to
-`/ (root)`.  After the first successful run the dashboard is live at:
+`/ (root)`. After the first successful run the dashboard is live at:
 
 ```
 https://<your-username>.github.io/<repo-name>/outputs/dashboard.html
@@ -126,27 +124,21 @@ https://<your-username>.github.io/<repo-name>/outputs/dashboard.html
 
 **3. Trigger a first run**
 
-Go to **Actions → Update energy dashboard → Run workflow** to run it immediately
-rather than waiting until 07:00 UTC.
+Go to **Actions → Update energy dashboard → Run workflow** to trigger it immediately rather than waiting until 07:00 UTC.
 
 ### Notes
 
-- The workflow uses `[skip ci]` in its commit message to prevent triggering itself.
-- The data cache (`data/cache/`) is gitignored and never committed, so each CI run
-  starts without a cache and performs a full history fetch from the Octopus API.
-  This differs from local runs, where the Parquet cache persists between builds and
-  only new records are pulled.  A full fetch takes 10–30 s depending on history
-  length; at one run per day this is well within the API's limits.
-- To change the schedule, edit the `cron` expression in the workflow file.
-  [crontab.guru](https://crontab.guru/) is a useful reference.
+- Uses `[skip ci]` in the commit message so it doesn't trigger itself.
+- `data/cache/` is gitignored, so CI has no cache and every run does a full history fetch. Local runs keep the Parquet cache and only pull new records. A full fetch takes 10–30s; well within API limits at one run a day.
+- To change the schedule, edit the `cron` expression in the workflow file. [crontab.guru](https://crontab.guru/) is a useful reference.
 
 ## Notes
 
-- **Tariff history**: All past and present tariffs are discovered automatically from your account — no manual tariff code configuration is needed.  When you switch tariff, the new one is picked up on the next dashboard build.
-- **Gas units**: SMETS2 meters report in m³ and are converted to kWh using a ~11.1 kWh/m³ factor.  Set `GAS_IS_M3 = False` near the top of `dashboard/build_dashboard.py` if your meter already reports kWh.
-- **Agile tariffs**: The unit-rate fetch returns one rate per 30-minute slot; `add_costs()` uses `merge_asof` to correctly match each consumption interval to its price.
-- **SSL inspection**: The `build_session()` function merges the Windows certificate store into the certifi CA bundle, resolving TLS errors caused by corporate/antivirus SSL inspection.
-- **Sunshine hours**: ERA5's pre-computed sunshine duration systematically overestimates in cloudy maritime climates because the reanalysis model operates on a coarse (~25 km) grid that smooths out cloud variability.  Sunshine hours are instead estimated using the FAO-56 Angstrom-Prescott formula: `S = N × (Rs/Ra − 0.25) / 0.50`, where `N` is astronomical day length, `Rs` is daily shortwave radiation from ERA5, and `Ra` is extraterrestrial radiation — both computed from solar geometry.  This is location-agnostic: sunnier climates naturally produce higher values because their `Rs/Ra` ratio is genuinely higher.
+- **Tariff history** — pulled automatically from your account, so there's no tariff code to configure by hand. Switch tariff and the new one shows up on the next build.
+- **Gas units** — SMETS2 meters report in m³, converted to kWh at ~11.1 kWh/m³. If your meter already reports kWh, set `GAS_IS_M3 = False` near the top of `dashboard/build_dashboard.py`.
+- **Agile tariffs** — the unit-rate fetch returns one rate per 30-minute slot; `add_costs()` uses `merge_asof` to match each consumption interval to the right price.
+- **SSL inspection** — `build_session()` merges the Windows certificate store into the certifi CA bundle, fixing TLS errors caused by corporate/antivirus SSL inspection.
+- **Sunshine hours** — ERA5's pre-computed sunshine duration overestimates in cloudy maritime climates, because the reanalysis model runs on a coarse (~25 km) grid that smooths out cloud variability. Sunshine hours are instead estimated with the FAO-56 Angstrom-Prescott formula: `S = N × (Rs/Ra − 0.25) / 0.50`, where `N` is astronomical day length, `Rs` is daily shortwave radiation from ERA5, and `Ra` is extraterrestrial radiation — both computed from solar geometry. Location-agnostic: sunnier climates naturally produce higher values because their `Rs/Ra` ratio is genuinely higher.
 
 ## Env variables
 
@@ -168,8 +160,9 @@ rather than waiting until 07:00 UTC.
 - [Example downloader](https://github.com/OllieJC/oebd/blob/main/downloader.py) (credit OllieJC)
 
 ## Theme
-The theme used in the dashboard is [Zephyr](https://bootswatch.com/zephyr/) from Bootswatch.
+
+The dashboard theme is [Zephyr](https://bootswatch.com/zephyr/) from Bootswatch.
 
 ## AI
 
-TLS enforcement issues in accessing GraphQL API resolved with Claude Code assistance. Readme augmented by Claude Code. Javascript for final HTML output generated by Claude Code. All AI-generated code/documentation has been reviewed and tested.
+TLS enforcement issues accessing the GraphQL API resolved with Claude Code assistance. Readme augmented by Claude Code. Javascript for the final HTML output generated by Claude Code. All AI-generated code/documentation has been reviewed and tested.
